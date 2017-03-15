@@ -1,0 +1,4 @@
+engine/
+storage/
+node_modules
+sync.sh
