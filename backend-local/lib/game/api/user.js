@@ -107,7 +107,7 @@ router.post('/code', auth.tokenAuth, jsonResponse((request) => {
     }))
     .then((data) => {
         console.log(query,data)
-        if (!data.modified) {
+        if (!data.modifiedCount) {
             return q.reject('branch does not exist');
         }
         env.del(`scrScriptCachedData:${request.user._id}`);
