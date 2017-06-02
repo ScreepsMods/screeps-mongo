@@ -506,7 +506,7 @@ router.post('/create-construction', auth.tokenAuth, jsonResponse((request) => {
     result = result.then(() => db['rooms.objects'].count({$and: [{type: 'constructionSite'}, {user: ""+request.user._id}]}))
     .then((count) => count >= C.MAX_CONSTRUCTION_SITES ? q.reject('too many') : true);
 
-    return result.then(() => db['rooms.objects'].insert({
+    let data = {
         type: 'constructionSite',
         room: request.body.room,
         x,
@@ -516,8 +516,9 @@ router.post('/create-construction', auth.tokenAuth, jsonResponse((request) => {
         user: request.user._id.toString(),
         progress: 0,
         progressTotal
-    }))
-    .then((data) => {
+    }
+    return result.then(() => db['rooms.objects'].insert(data))
+    .then(() => {
         return db.rooms.update({_id: request.body.room}, {$set: {active: true}})
         .then(() => ({_id: data._id}));
     });
