@@ -45,6 +45,7 @@ exports.env = {
         ROOM_HISTORY: 'roomHistory:',
         ROOM_VISUAL: 'roomVisual:',
         MEMORY_SEGMENTS: 'memorySegments:',
+        PUBLIC_MEMORY_SEGMENTS: 'publicMemorySegments:',
         ROOM_INTENTS: 'roomIntents:'
     }
 };

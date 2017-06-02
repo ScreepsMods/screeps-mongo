@@ -27,7 +27,7 @@ module.exports = {
     FIND_HOSTILE_CREEPS: 103,
     FIND_SOURCES_ACTIVE: 104,
     FIND_SOURCES: 105,
-    FIND_DROPPED_ENERGY: 106,
+    FIND_DROPPED_ENERGY: -106,
     FIND_DROPPED_RESOURCES: 106,
     FIND_STRUCTURES: 107,
     FIND_MY_STRUCTURES: 108,
@@ -94,8 +94,8 @@ module.exports = {
         "claim": 600
     },
 
-    WORLD_WIDTH: 182,
-    WORLD_HEIGHT: 182,
+    WORLD_WIDTH: 202,
+    WORLD_HEIGHT: 202,
 
     CREEP_LIFE_TIME: 1500,
     CREEP_CLAIM_LIFE_TIME: 500,
@@ -309,6 +309,7 @@ module.exports = {
     TERMINAL_HITS: 3000,
     TERMINAL_SEND_COST: 0.1,
     TERMINAL_MIN_SEND: 100,
+    TERMINAL_COOLDOWN: 10,
 
     CONTAINER_HITS: 250000,
     CONTAINER_CAPACITY: 2000,
@@ -523,13 +524,13 @@ module.exports = {
     BOOSTS: {
         work: {
             UO: {
-                harvest: 4
+                harvest: 3
             },
             UHO2: {
-                harvest: 6
+                harvest: 5
             },
             XUHO2: {
-                harvest: 8
+                harvest: 7
             },
             LH: {
                 build: 1.5,

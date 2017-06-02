@@ -11,7 +11,7 @@ var bulk = require('./bulk'),
     _ = require('lodash'),
     child_process = require('child_process'),
     util = require('util'),
-    runtimeChild, runtimeDeferred, runtimeTimeout, runtimeData, runtimeRestartSignalReceived = false,
+    runtimeChild, runtimeDeferred, runtimeTimeoutSigkill, runtimeTimeoutSigint, runtimeData, runtimeRestartSignalReceived = false,
     runtimeCache = {},
     roomStatsUpdates = {},
     zlib = require('zlib'),
@@ -28,7 +28,9 @@ _.extend(config.engine, {
     },
     cpuMaxPerTick: 500,
     cpuBucketSize: 10000,
-    customIntentTypes: {}
+    customIntentTypes: {},
+    historyChunkSize: 20,
+    useSigintTimeout: false
 });
 
 exports.customObjectPrototypes = [];
@@ -221,6 +223,7 @@ exports.getRuntimeData = function(userId, onlyInRoom) {
             db['rooms.flags'].find({user: userId})
         ]);
     }).then((result) => {
+
         var gameTime = result[4];
 
         db['users.console'].removeWhere({_id: {$in: _.map(result[3], (i) => i._id)}});
@@ -296,6 +299,14 @@ exports.getRuntimeData = function(userId, onlyInRoom) {
             db['market.orders'].find({user: userId}),
             result[0].activeSegments && result[0].activeSegments.length > 0 ?
                 env.hmget(env.keys.MEMORY_SEGMENTS+userId, result[0].activeSegments) :
+                q.when(),
+            result[0].activeForeignSegment && result[0].activeForeignSegment.user_id && result[0].activeForeignSegment.id ?
+                q.all([
+                    env.hget(
+                        env.keys.MEMORY_SEGMENTS+result[0].activeForeignSegment.user_id,
+                        result[0].activeForeignSegment.id),
+                    env.get(env.keys.PUBLIC_MEMORY_SEGMENTS+result[0].activeForeignSegment.user_id)
+                ]) :
                 q.when()
         ]);
 
@@ -310,6 +321,13 @@ exports.getRuntimeData = function(userId, onlyInRoom) {
             for(var i=0; i<runtimeData.user.activeSegments.length; i++) {
                 runtimeData.memorySegments[runtimeData.user.activeSegments[i]] = result[3][i] || "";
             }
+        }
+        if(result[4] && result[4][1] && result[4][1].split(',').indexOf(""+runtimeData.user.activeForeignSegment.id) != -1) {
+            runtimeData.foreignMemorySegment = {
+                username: runtimeData.user.activeForeignSegment.username,
+                id: runtimeData.user.activeForeignSegment.id,
+                data: result[4][0]
+            };
         }
         return runtimeData;
     })
@@ -341,7 +359,6 @@ exports.makeRuntime = function(userId, onlyInRoom) {
     .then((_runtimeData) => {
 
         runtimeDeferred = q.defer();
-        runtimeTimeout = null;
         runtimeData = _runtimeData;
 
         if (!runtimeChild || !runtimeChild.connected || runtimeRestartSignalReceived) {
@@ -362,16 +379,23 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                 switch (message.type) {
                     case 'start':
 
-                        if (runtimeTimeout) {
-                            clearTimeout(runtimeTimeout);
-                        }
+                        clearTimeout(runtimeTimeoutSigkill);
+                        clearTimeout(runtimeTimeoutSigint);
+
 
                         if (runtimeData.cpu < Infinity) {
-                            runtimeTimeout = setTimeout(() => {
+
+                            if(config.engine.useSigintTimeout) {
+                                runtimeTimeoutSigint = setTimeout(() => {
+                                    runtimeChild.kill('SIGINT');
+                                }, runtimeData.cpu + 20);
+                            }
+
+                            runtimeTimeoutSigkill = setTimeout(() => {
 
                                 runtimeDeferred.reject({
                                     type: 'error',
-                                    error: 'Script execution has been terminated with a hard reset: CPU limit reached'
+                                    error: 'Script execution has been interrupted with a hard reset: CPU limit reached'
                                 });
 
                                 runtimeChild._killRequest = true;
@@ -384,17 +408,16 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                                     cpu: 'error'
                                 }));
 
-                                db.users.update({_id: runtimeData.user._id}, {$set: {
+                                /*db.users.update({_id: runtimeData.user._id}, {$set: {
                                     skipTicksPenalty: 5
-                                }});
+                                }});*/
 
                             }, 1000);
                         }
                         break;
                     case 'done':
-                        if (runtimeTimeout) {
-                            clearTimeout(runtimeTimeout);
-                        }
+                        clearTimeout(runtimeTimeoutSigkill);
+                        clearTimeout(runtimeTimeoutSigint);
 
                         var $set = {
                             lastUsedCpu: message.usedTime,
@@ -402,6 +425,9 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                         };
                         if(message.activeSegments) {
                             $set.activeSegments = message.activeSegments;
+                        }
+                        if(message.defaultPublicSegment !== undefined) {
+                            $set.defaultPublicSegment = message.defaultPublicSegment;
                         }
                         if (runtimeData.cpu < Infinity) {
                             var newCpuAvailable = runtimeData.user.cpuAvailable + runtimeData.user.cpu - message.usedTime;
@@ -411,6 +437,37 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                             $set.cpuAvailable = newCpuAvailable;
                         }
                         db.users.update({_id: runtimeData.user._id}, {$set});
+
+                        if(message.activeForeignSegment !== undefined) {
+                            if(message.activeForeignSegment === null) {
+                                db.users.update({_id: runtimeData.user._id}, {$unset: {
+                                    activeForeignSegment: true
+                                }});
+                            }
+                            else {
+                                if(runtimeData.user.activeForeignSegment &&
+                                    message.activeForeignSegment.username == runtimeData.user.activeForeignSegment.username &&
+                                    message.activeForeignSegment.id) {
+                                    db.users.update({_id: runtimeData.user._id}, {$merge: {
+                                        activeForeignSegment: {id: message.activeForeignSegment.id}
+                                    }});
+                                }
+                                else {
+                                    db.users.findOne({username: message.activeForeignSegment.username}, {defaultPublicSegment: true})
+                                        .then(user => {
+                                            message.activeForeignSegment.user_id = user._id;
+                                            if(!message.activeForeignSegment.id && user.defaultPublicSegment) {
+                                                message.activeForeignSegment.id = user.defaultPublicSegment;
+                                            }
+                                        })
+                                        .finally(() => {
+                                            db.users.update({_id: runtimeData.user._id}, {$set: {
+                                                activeForeignSegment: message.activeForeignSegment
+                                            }});
+                                        })
+                                }
+                            }
+                        }
 
                         pubsub.publish(`user:${runtimeData.user._id}/cpu`, JSON.stringify({
                             cpu: message.usedTime,
@@ -422,9 +479,8 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                         runtimeDeferred.resolve(message);
                         break;
                     case 'error':
-                        if (runtimeTimeout) {
-                            clearTimeout(runtimeTimeout);
-                        }
+                        clearTimeout(runtimeTimeoutSigkill);
+                        clearTimeout(runtimeTimeoutSigint);
 
                         message.username = runtimeData && runtimeData.user && runtimeData.user.username;
 
@@ -458,9 +514,8 @@ exports.makeRuntime = function(userId, onlyInRoom) {
                         }
                         break;
                     case 'reject':
-                        if (runtimeTimeout) {
-                            clearTimeout(runtimeTimeout);
-                        }
+                        clearTimeout(runtimeTimeoutSigkill);
+                        clearTimeout(runtimeTimeoutSigint);
 
                         message.username = runtimeData && runtimeData.user && runtimeData.user.username;
                         if(message.error) {
@@ -482,9 +537,8 @@ exports.makeRuntime = function(userId, onlyInRoom) {
 
             runtimeChild.on('exit', function(code, signal) {
 
-                if (runtimeTimeout) {
-                    clearTimeout(runtimeTimeout);
-                }
+                clearTimeout(runtimeTimeoutSigkill);
+                clearTimeout(runtimeTimeoutSigint);
 
                 console.log(`Child runtime process ${this.pid} exited with code=${code} signal=${signal}`);
 
@@ -597,8 +651,7 @@ exports.saveUserIntents = function(userId, intents) {
         updates.push(
             env.hset(env.keys.ROOM_INTENTS+room,userId,JSON.stringify(intents[room])))
     }
-    if(userId == '2f2a9f5e2fad702')
-        console.log('intents',intents)
+
     return q.all(updates);
 };
 
@@ -891,7 +944,7 @@ var stripErrors = [
 
 exports.evalCode = function(module, globals, returnValue, timeout, scriptCachedData) {
 
-    var options = {filename: module.name};
+    var options = {filename: module.name, breakOnSigint: true};
 
     var oldModule = globals.__module || {};
 
@@ -953,7 +1006,11 @@ exports.evalCode = function(module, globals, returnValue, timeout, scriptCachedD
     catch(e) {
 
         if(e.message == 'Script execution timed out.') {
-            throw new EvalCodeError('Script execution has been terminated: CPU limit reached');
+            throw new EvalCodeError('Script execution timed out: CPU limit reached');
+        }
+
+        if(e.message == 'Script execution interrupted.') {
+            throw new EvalCodeError('Script execution has been interrupted: CPU limit reached');
         }
 
         if(e instanceof EvalCodeError) throw e;

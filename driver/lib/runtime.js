@@ -116,7 +116,7 @@ process.on('message', (message) => {
 
         let runtimeData = data[0];
         let scriptCachedData = {};
-        var activeSegments;
+        var activeSegments, publicSegments, defaultPublicSegment, activeForeignSegment;
         scriptCachedData.cachedData = _.mapValues(data[1], i => Buffer.from(i, 'base64'));
 
         runtimeData.staticTerrainData = staticTerrainData;
@@ -210,6 +210,47 @@ process.on('message', (message) => {
                     }
 
                 }
+            },
+            setPublicSegments: {
+                value: function(ids) {
+                    if(!_.isArray(ids)) {
+                        throw new Error(`"${ids}" is not an array`);
+                    }
+                    publicSegments = [];
+                    for(var i=0; i<ids.length; i++) {
+                        var id = parseInt(ids[i]);
+                        if(_.isNaN(id) || id > 99 || id < 0) {
+                            throw new Error(`"${ids[i]}" is not a valid segment ID`);
+                        }
+                        publicSegments.push(id);
+                    }
+                }
+            },
+            setDefaultPublicSegment: {
+                value: function(id) {
+                    if(id !== null) {
+                        id = parseInt(id);
+                        if (_.isNaN(id) || id > 99 || id < 0) {
+                            throw new Error(`"${id}" is not a valid segment ID`);
+                        }
+                    }
+                    defaultPublicSegment = id;
+                }
+            },
+            setActiveForeignSegment: {
+                value: function(username, id) {
+                    if(username === null) {
+                        activeForeignSegment = null;
+                        return;
+                    }
+                    if(id !== undefined) {
+                        id = parseInt(id);
+                        if (_.isNaN(id) || id > 99 || id < 0) {
+                            throw new Error(`"${id}" is not a valid segment ID`);
+                        }
+                    }
+                    activeForeignSegment = {username, id};
+                }
             }
         });
 
@@ -217,6 +258,11 @@ process.on('message', (message) => {
             for(var i in runtimeData.memorySegments) {
                 rawMemory.segments[i] = runtimeData.memorySegments[i];
             }
+        }
+
+        if(runtimeData.foreignMemorySegment) {
+            rawMemory.foreignSegment = Object.create(null);
+            Object.assign(rawMemory.foreignSegment, runtimeData.foreignMemorySegment);
         }
 
         var getUsedCpu = function () {
@@ -321,6 +367,8 @@ process.on('message', (message) => {
         }
 
         outMessage.activeSegments = activeSegments;
+        outMessage.activeForeignSegment = activeForeignSegment;
+        outMessage.defaultPublicSegment = defaultPublicSegment;
 
         var segmentKeys = Object.keys(rawMemory.segments);
         if(segmentKeys.length > 0) {
@@ -333,11 +381,18 @@ process.on('message', (message) => {
                 if(_.isNaN(key) || key < 0 || key > 99) {
                     return q.reject(`"${segmentKeys[i]}" is not a valid memory segment ID`);
                 }
+                if(typeof rawMemory.segments[segmentKeys[i]] != 'string'){
+                    return q.reject(`Memory segment #${segmentKeys[i]} is not a string`);
+                }
                 if(rawMemory.segments[segmentKeys[i]].length > 100*1024) {
-                    return q.reject(`Memory segment "${segmentKeys[i]}" has exceeded 100 KB length limit`);
+                    return q.reject(`Memory segment #${segmentKeys[i]} has exceeded 100 KB length limit`);
                 }
                 outMessage.memorySegments[key] = ""+rawMemory.segments[segmentKeys[i]];
             }
+        }
+
+        if(publicSegments) {
+            env.set(env.keys.PUBLIC_MEMORY_SEGMENTS+runtimeData.user._id, publicSegments.join(','));
         }
 
         process.send(outMessage);
