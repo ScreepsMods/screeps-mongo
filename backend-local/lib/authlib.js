@@ -6,7 +6,7 @@ var q = require('q'),
 
 exports.genToken = function (id) {
     var token = crypto.createHmac('sha1', 'hsdhweh342sdbj34e').update(new Date().getTime() + id.toString()).digest('hex');
-    return env.setex(`auth_${token}`, 60, id.toString())
+    return env.setex(`auth_${token}`, 600, id.toString())
         .then(() => token);
 };
 
@@ -23,8 +23,8 @@ exports.checkToken = function (token, noConsume) {
         if (!noConsume) {
             env.ttl(authKey)
             .then((ttl) => {
-                if (ttl > 100) {
-                    env.expire(authKey, 60);
+                if (ttl > 1000) {
+                    env.expire(authKey, 600);
                 }
             });
         }

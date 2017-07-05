@@ -439,7 +439,7 @@ function genInvaders() {
                             }
                             return db.rooms.update({_id: room._id}, {$set: {invaderGoal}})
                         })
-                        .then(() => db['rooms.objects'].update({$and: [{room: room._id}, {type: 'source'}]}, {$set: {invaderHarvested: 0}}));
+                        .then(() => db['rooms.objects'].update({$and: [{room: room._id}, {type: 'source'}]}, {$set: {invaderHarvested: 0}},{ multi: true }));
                 })
         })));
 }
