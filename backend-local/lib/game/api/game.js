@@ -228,7 +228,7 @@ router.post('/map-stats', auth.tokenAuth, jsonResponse((request) => {
             })
         })
     })
-    .then(() => db.users.find({_id: {$in: _.keys(users)}}))
+    .then(() => db.users.find({_id: {$in: _.keys(users)}},{ _id: true, badge: true, username: true }))
     .then(users => ({
         gameTime,
         stats,
