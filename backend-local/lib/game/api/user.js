@@ -197,7 +197,7 @@ router.post('/set-active-branch', auth.tokenAuth, jsonResponse((request) => {
     }
     return db['users.code'].findOne({$and: [{user: request.user._id}, {branch: request.body.branch}]})
         .then((data) => data ? true : q.reject('no branch'))
-        .then(() => db['users.code'].update({user: request.user._id}, {$set: {[request.body.activeName]: false}}))
+        .then(() => db['users.code'].update({user: request.user._id}, {$set: {[request.body.activeName]: false}}, { multi: true }))
         .then(() => db['users.code'].update({$and: [{user: request.user._id}, {branch: request.body.branch}]}, {$set: {[request.body.activeName]: true}}))
         .then(() => pubsub.publish(`user:${request.user._id}/set-active-branch`, JSON.stringify({
             activeName: request.body.activeName,
