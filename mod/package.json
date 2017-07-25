@@ -17,5 +17,11 @@
   ],
   "author": "Adam Shumann",
   "license": "MIT",
-  "dependencies": {}
+  "dependencies": {
+    "body-parser": "^1.17.2",
+    "express": "^4.15.3",
+    "mongodb": "^2.2.30",
+    "q-json-response": "^0.1.3",
+    "redis": "^2.7.1"
+  }
 }

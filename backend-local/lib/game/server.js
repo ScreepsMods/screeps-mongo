@@ -34,7 +34,8 @@ Object.assign(config.backend, {
     onGetRoomHistory(roomName, baseTime, callback) {
         callback('not implemented');
     },
-    customObjectTypes: {}
+    customObjectTypes: {},
+    historyChunkSize: 20
 });
 
 function getServerData() {
